@@ -1,0 +1,164 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// LexOps — Firestore Security Rules (Fortress 700 Multi-Tenant Isolation)
+//
+// Core Principle: NO cross-tenant data access.
+// Every document under a tenant path is locked to that tenant's users only.
+// The Sovereign (root admin) is the only role with cross-tenant read access,
+// and even then, WRITE operations follow strict append-only rules on C9 paths.
+//
+// Entity ID (700-series) is the primary isolation key used as tenantId.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper Functions ────────────────────────────────────────────────────────
+
+    // Verify the request carries a valid Firebase Auth token
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    // Extract custom claims from the JWT
+    function getClaims() {
+      return request.auth.token;
+    }
+
+    // Check if the authenticated user belongs to a specific tenant
+    function belongsToTenant(tenantId) {
+      return isAuthenticated() && getClaims().tenantId == tenantId;
+    }
+
+    // Sovereign has cross-entity read access (level 1)
+    function isSovereign() {
+      return isAuthenticated() && getClaims().role == 'sovereign' && getClaims().level == 1;
+    }
+
+    // Entity Admin for a specific tenant
+    function isEntityAdmin(tenantId) {
+      return belongsToTenant(tenantId) && getClaims().role == 'entity_admin';
+    }
+
+    // Regular employee of a specific tenant
+    function isEmployee(tenantId) {
+      return belongsToTenant(tenantId) &&
+             (getClaims().role == 'employee' || getClaims().role == 'entity_admin');
+    }
+
+    // Freelancer accessing only their own documents
+    function isFreelancer() {
+      return isAuthenticated() && getClaims().role == 'freelancer';
+    }
+
+    // ── /entities/{tenantId} ────────────────────────────────────────────────────
+    // Top-level company/establishment documents — keyed by Entity 700-series ID
+
+    match /entities/{tenantId} {
+      // Sovereign can read all entities; entity members can read their own
+      allow read: if isSovereign() || belongsToTenant(tenantId);
+
+      // Only sovereign can create/update entity root documents
+      allow create, update: if isSovereign();
+
+      // ABSOLUTE PROHIBITION: No entity document may ever be deleted
+      allow delete: if false;
+
+      // ── /entities/{tenantId}/branches/{branchId} ──────────────────────────────
+      match /branches/{branchId} {
+        allow read: if isSovereign() || belongsToTenant(tenantId);
+        allow create, update: if isEntityAdmin(tenantId);
+        allow delete: if false;
+      }
+
+      // ── /entities/{tenantId}/users/{userId} ──────────────────────────────────
+      match /users/{userId} {
+        allow read: if isSovereign()
+                    || isEntityAdmin(tenantId)
+                    || (belongsToTenant(tenantId) && request.auth.uid == userId);
+
+        allow create: if isEntityAdmin(tenantId) || isSovereign();
+
+        // Employees can only update their own non-sensitive fields
+        allow update: if isEntityAdmin(tenantId)
+                      || (belongsToTenant(tenantId) && request.auth.uid == userId
+                          && !request.resource.data.diff(resource.data).affectedKeys()
+                              .hasAny(['role', 'tenantId', 'level', 'salary']));
+        allow delete: if false;
+      }
+
+      // ── /entities/{tenantId}/attendance/{recordId} ────────────────────────────
+      // Attendance records are APPEND-ONLY (no update/delete)
+      match /attendance/{recordId} {
+        allow read: if isSovereign() || isEmployee(tenantId);
+        allow create: if isEmployee(tenantId);
+
+        // C9 LEDGER PRINCIPLE: Attendance records are immutable after creation
+        allow update: if false;
+        allow delete: if false;
+      }
+
+      // ── /entities/{tenantId}/violations/{violationId} ─────────────────────────
+      match /violations/{violationId} {
+        allow read: if isSovereign() || isEmployee(tenantId);
+        allow create: if isEmployee(tenantId);
+        allow update: if isEntityAdmin(tenantId)
+                      && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['createdAt', 'hmacSignature', 'uid']);
+        allow delete: if false;
+      }
+
+      // ── /entities/{tenantId}/payroll/{payrollId} ──────────────────────────────
+      match /payroll/{payrollId} {
+        allow read: if isSovereign()
+                    || isEntityAdmin(tenantId)
+                    || (belongsToTenant(tenantId) && resource.data.employeeUid == request.auth.uid);
+        allow create: if isEntityAdmin(tenantId) || isSovereign();
+
+        // Payroll is LOCKED after closing (status == 'closed')
+        allow update: if (isEntityAdmin(tenantId) || isSovereign())
+                      && resource.data.status != 'closed';
+        allow delete: if false;
+      }
+
+      // ── /entities/{tenantId}/lexi_decisions/{decisionId} ─────────────────────
+      // AI Legal Engine decisions — fully immutable
+      match /lexi_decisions/{decisionId} {
+        allow read: if isSovereign() || isEmployee(tenantId);
+        allow create: if isEmployee(tenantId) || isSovereign();
+        allow update: if false;
+        allow delete: if false;
+      }
+    }
+
+    // ── /freelancers/{userId} ───────────────────────────────────────────────────
+    // Independent users — isolated to their own UID
+
+    match /freelancers/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId
+                         && (isFreelancer() || isSovereign());
+      allow delete: if false;
+
+      match /cases/{caseId} {
+        allow read, create: if isAuthenticated() && request.auth.uid == userId;
+        allow update: if isAuthenticated() && request.auth.uid == userId
+                      && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['createdAt', 'hmacSignature']);
+        allow delete: if false;
+      }
+    }
+
+    // ── /system/{doc} ───────────────────────────────────────────────────────────
+    // System-level configuration — Sovereign only
+
+    match /system/{document=**} {
+      allow read, write: if isSovereign();
+    }
+
+    // ── DENY ALL (catch-all) ─────────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

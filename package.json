@@ -1,0 +1,26 @@
+{
+  "name": "lexops-sovereign-legal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LexOps — Sovereign Legal Compliance Operating System for Saudi Arabia",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "pnpm --filter api-service run start:dev",
+    "dev:web": "pnpm --filter web-dashboard run dev",
+    "build:api": "pnpm --filter api-service run build",
+    "build:web": "pnpm --filter web-dashboard run build",
+    "lint": "pnpm -r run lint",
+    "test": "pnpm -r run test"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.1.0"
+}
