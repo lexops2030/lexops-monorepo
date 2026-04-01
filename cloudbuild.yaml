@@ -1,0 +1,154 @@
+# ═══════════════════════════════════════════════════════════════════
+#  LexOps — Google Cloud Build CI/CD Pipeline
+#  Project: gen-lang-client-0154024574
+#  Triggers on: push to main branch
+# ═══════════════════════════════════════════════════════════════════
+
+substitutions:
+  _PROJECT_ID:    gen-lang-client-0154024574
+  _REGION:        me-central1
+  _REGISTRY:      me-central1-docker.pkg.dev
+  _REPO:          lexops
+  _SERVICE_NAME:  lexops-api
+  _IMAGE:         me-central1-docker.pkg.dev/gen-lang-client-0154024574/lexops/api-service
+
+options:
+  logging:        CLOUD_LOGGING_ONLY
+  machineType:    E2_HIGHCPU_8
+
+steps:
+  # ── Step 1: Install pnpm globally ─────────────────────────────────────────────
+  - id: setup-pnpm
+    name: node:20-alpine
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        corepack enable
+        corepack prepare pnpm@9.1.0 --activate
+        pnpm --version
+
+  # ── Step 2: Install backend dependencies ──────────────────────────────────────
+  - id: backend-install
+    name: node:20-alpine
+    entrypoint: sh
+    waitFor: [setup-pnpm]
+    args:
+      - -c
+      - |
+        corepack enable && corepack prepare pnpm@9.1.0 --activate
+        pnpm install --frozen-lockfile --filter api-service...
+
+  # ── Step 3: Build NestJS backend ──────────────────────────────────────────────
+  - id: backend-build
+    name: node:20-alpine
+    entrypoint: sh
+    waitFor: [backend-install]
+    args:
+      - -c
+      - |
+        corepack enable && corepack prepare pnpm@9.1.0 --activate
+        pnpm --filter api-service run build
+
+  # ── Step 4: Build Docker image ────────────────────────────────────────────────
+  - id: docker-build
+    name: gcr.io/cloud-builders/docker
+    waitFor: [backend-build]
+    args:
+      - build
+      - -t
+      - $_IMAGE:$SHORT_SHA
+      - -t
+      - $_IMAGE:latest
+      - -f
+      - apps/api-service/Dockerfile
+      - .
+
+  # ── Step 5: Push image to Artifact Registry ───────────────────────────────────
+  - id: docker-push
+    name: gcr.io/cloud-builders/docker
+    waitFor: [docker-build]
+    args:
+      - push
+      - --all-tags
+      - $_IMAGE
+
+  # ── Step 6: Deploy to Cloud Run ───────────────────────────────────────────────
+  - id: cloud-run-deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [docker-push]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - $_SERVICE_NAME
+      - --image=$_IMAGE:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --allow-unauthenticated
+      - --port=8080
+      - --memory=1Gi
+      - --cpu=1
+      - --min-instances=0
+      - --max-instances=10
+      - --concurrency=80
+      - --set-env-vars=NODE_ENV=production,PORT=8080
+      - --set-secrets=FIREBASE_SERVICE_ACCOUNT=FIREBASE_SERVICE_ACCOUNT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,C9_HMAC_SECRET=C9_HMAC_SECRET:latest
+      - --project=$_PROJECT_ID
+
+  # ── Step 7: Install frontend dependencies ─────────────────────────────────────
+  - id: frontend-install
+    name: node:20-alpine
+    entrypoint: sh
+    waitFor: [setup-pnpm]
+    args:
+      - -c
+      - |
+        corepack enable && corepack prepare pnpm@9.1.0 --activate
+        pnpm install --frozen-lockfile --filter web-dashboard...
+
+  # ── Step 8: Build React frontend ──────────────────────────────────────────────
+  - id: frontend-build
+    name: node:20-alpine
+    entrypoint: sh
+    waitFor: [frontend-install, cloud-run-deploy]
+    args:
+      - -c
+      - |
+        corepack enable && corepack prepare pnpm@9.1.0 --activate
+        # Inject the Cloud Run URL into frontend build
+        export VITE_API_URL=$(gcloud run services describe lexops-api \
+          --region=me-central1 \
+          --project=gen-lang-client-0154024574 \
+          --format='value(status.url)' 2>/dev/null || echo "")
+        export VITE_FIREBASE_PROJECT_ID=gen-lang-client-0154024574
+        pnpm --filter web-dashboard run build
+
+  # ── Step 9: Deploy to Firebase Hosting ───────────────────────────────────────
+  - id: firebase-deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [frontend-build]
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        npm install -g firebase-tools
+        firebase deploy --only hosting \
+          --project gen-lang-client-0154024574 \
+          --token "$$FIREBASE_TOKEN" \
+          --non-interactive
+    secretEnv: [FIREBASE_TOKEN]
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/gen-lang-client-0154024574/secrets/FIREBASE_TOKEN/versions/latest
+      env: FIREBASE_TOKEN
+
+images:
+  - $_IMAGE:$SHORT_SHA
+  - $_IMAGE:latest
+
+tags:
+  - lexops
+  - sovereign
+  - production
