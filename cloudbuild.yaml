@@ -37,7 +37,7 @@ steps:
       - -c
       - |
         corepack enable && corepack prepare pnpm@9.1.0 --activate
-        pnpm install --frozen-lockfile --filter api-service...
+       pnpm install --no-frozen-lockfile --filter api-service...
 
   # ── Step 3: Build NestJS backend ──────────────────────────────────────────────
   - id: backend-build
@@ -105,7 +105,7 @@ steps:
       - -c
       - |
         corepack enable && corepack prepare pnpm@9.1.0 --activate
-        pnpm install --frozen-lockfile --filter web-dashboard...
+        pnpm install --no-frozen-lockfile --filter web-dashboard...
 
   # ── Step 8: Build React frontend ──────────────────────────────────────────────
   - id: frontend-build
