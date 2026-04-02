@@ -1,26 +1,39 @@
 {
-  "name": "lexops-sovereign-legal",
+  "name": "api-service",
   "version": "1.0.0",
-  "private": true,
-  "description": "LexOps — Sovereign Legal Compliance Operating System for Saudi Arabia",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "description": "LexOps API Service — NestJS backend on Google Cloud Run",
   "scripts": {
-    "dev:api": "pnpm --filter api-service run start:dev",
-    "dev:web": "pnpm --filter web-dashboard run dev",
-    "build:api": "pnpm --filter api-service run build",
-    "build:web": "pnpm --filter web-dashboard run build",
-    "lint": "pnpm -r run lint",
-    "test": "pnpm -r run test"
+    "start:dev": "nest start --watch",
+    "build": "nest build",
+    "start:prod": "node dist/main",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.9.0",
+    "@nestjs/common": "^10.3.10",
+    "@nestjs/config": "^3.2.3",
+    "@nestjs/core": "^10.3.10",
+    "@nestjs/platform-express": "^10.3.10",
+    "@nestjs/swagger": "^7.4.0",
+    "@nestjs/throttler": "^6.2.1",
+    "firebase-admin": "^12.2.0",
+    "@google-cloud/vertexai": "^1.4.0",
+    "pg": "^8.12.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "class-validator": "^0.14.1",
+    "class-transformer": "^0.5.1",
+    "helmet": "^7.1.0",
+    "compression": "^1.7.4"
   },
   "devDependencies": {
-    "typescript": "^5.4.5"
-  },
-  "engines": {
-    "node": ">=20.0.0",
-    "pnpm": ">=9.0.0"
-  },
-  "packageManager": "pnpm@9.1.0"
+    "@nestjs/cli": "^10.4.5",
+    "@nestjs/testing": "^10.3.10",
+    "@types/node": "^20.14.10",
+    "@types/pg": "^8.11.6",
+    "@types/compression": "^1.7.5",
+    "typescript": "^5.4.5",
+    "ts-node": "^10.9.2"
+  }
 }
