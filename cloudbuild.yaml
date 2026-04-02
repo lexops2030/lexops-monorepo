@@ -92,6 +92,6 @@ steps:
       - --min-instances=0
       - --max-instances=10
       - --concurrency=80
-      - --set-env-vars=NODE_ENV=production,PORT=8080
+      - --set-env-vars=NODE_ENV=production
       - --set-secrets=FIREBASE_SERVICE_ACCOUNT=FIREBASE_SERVICE_ACCOUNT:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,C9_HMAC_SECRET=C9_HMAC_SECRET:latest
       - --project=$_PROJECT_ID
