@@ -37,7 +37,7 @@ steps:
       - -c
       - |
         corepack enable && corepack prepare pnpm@9.1.0 --activate
-       pnpm install --no-frozen-lockfile --filter api-service...
+        pnpm install --no-frozen-lockfile --filter api-service...
 
   # ── Step 3: Build NestJS backend ──────────────────────────────────────────────
   - id: backend-build
